@@ -1,4 +1,4 @@
-import * as cheerio from 'cheerio';
+import { parse } from 'node-html-parser';
 
 export interface ScanResult {
     original_url: string;
@@ -49,9 +49,10 @@ export class PageAnalyzer {
 
         try {
             while (hops <= this.MAX_REDIRECTS) {
-                // Fetch with manual redirect handling to track hops if needed
+                // Fetch with manual redirect handling to track hops
+                // Increased timeout to 15s
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
 
                 try {
                     const res = await fetch(currentUrl, {
@@ -60,6 +61,7 @@ export class PageAnalyzer {
                         headers: {
                             'User-Agent': 'Mozilla/5.0 (compatible; BlankPageDetector/1.0; +https://example.com)',
                             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                            'Accept-Language': 'en-US,en;q=0.5'
                         },
                         signal: controller.signal,
                     });
@@ -73,7 +75,17 @@ export class PageAnalyzer {
                         const location = res.headers.get('location');
                         if (location) {
                             // Handle relative or absolute redirects
-                            currentUrl = new URL(location, currentUrl).toString();
+                            try {
+                                currentUrl = new URL(location, currentUrl).toString();
+                            } catch (e) {
+                                // Fallback if URL constuction fails, use location as is if absolute
+                                if (location.startsWith('http')) {
+                                    currentUrl = location;
+                                } else {
+                                    // Just stop if redirect URL is invalid
+                                    break;
+                                }
+                            }
                         }
                         continue;
                     }
@@ -90,13 +102,11 @@ export class PageAnalyzer {
                     }
 
                     // Read body
-                    const buffer = await finalRes.arrayBuffer();
-                    const decoder = new TextDecoder('utf-8');
-                    finalBody = decoder.decode(buffer);
-                    result.content_length = buffer.byteLength;
+                    finalBody = await finalRes.text();
+                    result.content_length = finalBody.length; // Approximate char length
 
                     break; // Exit loop if not redirecting
-                } catch (fetchError: unknown) {
+                } catch (fetchError: any) {
                     clearTimeout(timeoutId);
                     throw fetchError;
                 }
@@ -140,34 +150,63 @@ export class PageAnalyzer {
             return result;
         }
 
-        const $ = cheerio.load(html);
+        try {
+            const root = parse(html);
 
-        // Remove non-visible elements
-        $('script, style, iframe, svg, meta, link, noscript').remove();
+            // Remove non-visible elements
+            // Note: node-html-parser's querySelectorAll returns an array, we can iterate and remove
+            const unwanted = root.querySelectorAll('script, style, iframe, svg, meta, link, noscript');
+            unwanted.forEach(el => el.remove());
 
-        const bodyText = $('body').text().trim().replace(/\s+/g, ' ');
-        result.visible_text_length = bodyText.length;
+            // Extract text from body
+            const body = root.querySelector('body');
+            let bodyText = '';
 
-        const $visual = cheerio.load(html);
-        const imgCount = $visual('img').length;
-        const iframeCount = $visual('iframe').length;
-
-        if (result.visible_text_length < this.MIN_TEXT_LENGTH) {
-            if (imgCount === 1 && result.visible_text_length < 10) {
-                result.has_images_only = true;
-                result.is_blank_page = true;
-                result.blank_reason = "Single image without text";
-                return result;
-            }
-            if (result.visible_text_length === 0 && imgCount === 0 && iframeCount === 0) {
-                result.is_blank_page = true;
-                result.blank_reason = "Empty Body / No Text";
-                return result;
+            if (body) {
+                bodyText = body.text.trim().replace(/\s+/g, ' ');
+            } else {
+                // Fallback if no body tag, check whole root but after removing unwanted
+                bodyText = root.text.trim().replace(/\s+/g, ' ');
             }
 
-            result.is_blank_page = true;
-            result.blank_reason = "Low visible text (<30 chars)";
-            return result;
+            result.visible_text_length = bodyText.length;
+
+            const imgCount = root.querySelectorAll('img').length;
+            const iframeCount = root.querySelectorAll('iframe').length; // re-query or count before removing? 
+            // Wait, we removed iframes above. We should have counted before removing or not removed them yet if we need stats.
+            // Let's re-parse for counts or count before remove.
+            // Actually usually we check blankness based on VISIBLE content. Iframes are "content" visually often.
+            // But the original code removed them. Let's stick to original logic: iframes removed means we don't count their text.
+            // But we do check their presence for "Empty Body" check.
+
+            // Re-parsing original or just counting from separate parse? 
+            // Parsing is cheap. Let's do a fresh parse for counting to be safe/clean.
+            const rootForCounts = parse(html);
+            const imgCountTotal = rootForCounts.querySelectorAll('img').length;
+            const iframeCountTotal = rootForCounts.querySelectorAll('iframe').length;
+
+
+            if (result.visible_text_length < this.MIN_TEXT_LENGTH) {
+                if (imgCountTotal === 1 && result.visible_text_length < 10) {
+                    result.has_images_only = true;
+                    result.is_blank_page = true;
+                    result.blank_reason = "Single image without text";
+                    return result;
+                }
+                if (result.visible_text_length === 0 && imgCountTotal === 0 && iframeCountTotal === 0) {
+                    result.is_blank_page = true;
+                    result.blank_reason = "Empty Body / No Text";
+                    return result;
+                }
+
+                result.is_blank_page = true;
+                result.blank_reason = "Low visible text (<30 chars)";
+                return result;
+            }
+
+        } catch (e) {
+            // Fallback if parsing fails heavily
+            result.error = "Parsing error";
         }
 
         return result;
