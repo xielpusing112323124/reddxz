@@ -1,0 +1,5 @@
+name = "reddxz"
+compatibility_date = "2025-12-20"
+compatibility_flags = ["nodejs_compat"]
+main = ".vercel/output/static/_worker.js"
+assets = { directory = ".vercel/output/static", binding = "ASSETS" }
