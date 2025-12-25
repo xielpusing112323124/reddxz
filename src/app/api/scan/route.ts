@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
     } catch (error: any) {
         console.error('Scan error:', error);
         return NextResponse.json(
-            { error: 'Internal Server Error', details: error.message },
+            { error: 'Internal Server Error', details: error.message || String(error) },
             { status: 500 }
         );
     }

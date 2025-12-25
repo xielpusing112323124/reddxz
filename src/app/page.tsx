@@ -24,13 +24,15 @@ export default function Home() {
         body: JSON.stringify({ urls }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to scan URLs');
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.indexOf("application/json") !== -1) {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Scan failed');
+        setResults(data as ScanResult[]);
+      } else {
+        const text = await response.text();
+        throw new Error(`Server returned non-JSON error: ${text.substring(0, 100)}... (Status: ${response.status})`);
       }
-
-      setResults(data as ScanResult[]);
     } catch (err: any) {
       setError(err.message);
     } finally {
