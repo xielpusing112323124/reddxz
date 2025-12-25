@@ -1,8 +1,10 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-@theme {
+:root {
   --font-inter: Inter, system-ui, sans-serif;
-  
+
   --color-cyber-black: #050505;
   --color-cyber-gray: #121212;
   --color-cyber-dark: #0a0a0a;
@@ -30,13 +32,16 @@ body {
   width: 8px;
   height: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: var(--color-cyber-gray);
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--color-cyber-cyan);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: #ffffff;
 }
@@ -45,6 +50,7 @@ body {
 .text-glow {
   text-shadow: 0 0 10px var(--color-cyber-cyan);
 }
+
 .border-glow {
   box-shadow: 0 0 10px var(--color-cyber-cyan-dim);
 }
